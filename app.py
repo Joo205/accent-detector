@@ -3,38 +3,89 @@ import requests
 import whisper
 import os
 import uuid
-import av  # PyAV library
+import subprocess
 
 def download_video(url, filename="input_video.mp4"):
-    response = requests.get(url)
-    with open(filename, 'wb') as f:
-        f.write(response.content)
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        with open(filename, 'wb') as f:
+            f.write(response.content)
+    except Exception as e:
+        st.error(f"فشل تحميل الفيديو: {e}")
+        raise
 
-def extract_audio_with_pyav(video_path, audio_path="audio.wav"):
-    container = av.open(video_path)
-    audio_stream = None
-    for stream in container.streams:
-        if stream.type == 'audio':
-            audio_stream = stream
-            break
-    if audio_stream is None:
-        raise ValueError("الفيديو لا يحتوي على مسار صوتي")
+def extract_audio_ffmpeg(video_path, audio_path="audio.wav"):
+    command = [
+        "ffmpeg",
+        "-y",  # Overwrite output file if exists
+        "-i", video_path,
+        "-vn",  # no video
+        "-acodec", "pcm_s16le",  # WAV codec
+        "-ar", "16000",  # sample rate 16kHz
+        "-ac", "1",  # mono channel
+        audio_path
+    ]
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.decode()
+        st.error(f"حدث خطأ أثناء استخراج الصوت:\n{err_msg}")
+        raise RuntimeError(f"FFmpeg failed: {err_msg}")
 
-    output = av.open(audio_path, mode='w')
-    output_stream = output.add_stream('pcm_s16le', rate=16000)
-    # مش ممكن نغير channels مباشر، فلازم نمشي كده
+def transcribe_audio(audio_path):
+    model = whisper.load_model("base")
+    result = model.transcribe(audio_path)
+    return result['text']
 
-    for packet in container.demux(audio_stream):
-        for frame in packet.decode():
-            frame.pts = None
-            frame.sample_rate = 16000
-            frame.layout = 'mono'  # يحول للصوت مونو لو مش كده أصلاً
-            new_packet = output_stream.encode(frame)
-            if new_packet:
-                output.mux(new_packet)
+def detect_accent(text):
+    text = text.lower()
+    if any(word in text for word in ['mate', 'bloody', 'cheers']):
+        return "British", 85
+    elif any(word in text for word in ['gonna', 'wanna', 'dude']):
+        return "American", 90
+    elif any(word in text for word in ['no worries', 'mate', 'heaps']):
+        return "Australian", 75
+    else:
+        return "Uncertain", 50
 
-    # Flush
-    new_packet = output_stream.encode(None)
-    if new_packet:
-        output.mux(new_packet)
-    out
+st.title("English Accent Detector")
+
+video_url = st.text_input("Enter a direct MP4 video URL:")
+
+if st.button("Analyze") and video_url:
+    st.info("Downloading video...")
+    video_filename = f"{uuid.uuid4()}.mp4"
+    try:
+        download_video(video_url, video_filename)
+    except:
+        st.stop()
+
+    st.info("Extracting audio...")
+    try:
+        extract_audio_ffmpeg(video_filename)
+    except:
+        st.stop()
+    st.success("Audio extraction done!")
+
+    st.info("Starting transcription...")
+    try:
+        transcription = transcribe_audio("audio.wav")
+    except Exception as e:
+        st.error(f"خطأ في التفريغ الصوتي: {e}")
+        st.stop()
+    st.success("Transcription done!")
+
+    accent, confidence = detect_accent(transcription)
+
+    st.success(f"Accent: {accent}")
+    st.write(f"Confidence: {confidence}%")
+    st.write("Transcription:")
+    st.text(transcription)
+
+    # تنظيف الملفات المؤقتة
+    try:
+        os.remove(video_filename)
+        os.remove("audio.wav")
+    except:
+        pass
