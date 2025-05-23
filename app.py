@@ -1,9 +1,11 @@
 import streamlit as st
-import requests
 import whisper
+import av
+import numpy as np
+import soundfile as sf
 import os
 import uuid
-import subprocess
+import requests
 
 def download_video(url, filename="input_video.mp4"):
     try:
@@ -15,41 +17,40 @@ def download_video(url, filename="input_video.mp4"):
         st.error(f"فشل تحميل الفيديو: {e}")
         raise
 
-def extract_audio_ffmpeg(video_path, audio_path="audio.wav"):
-    command = [
-        "ffmpeg",
-        "-y",  # Overwrite output file if exists
-        "-i", video_path,
-        "-vn",  # no video
-        "-acodec", "pcm_s16le",  # WAV codec
-        "-ar", "16000",  # sample rate 16kHz
-        "-ac", "1",  # mono channel
-        audio_path
-    ]
-    try:
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        err_msg = e.stderr.decode()
-        st.error(f"حدث خطأ أثناء استخراج الصوت:\n{err_msg}")
-        raise RuntimeError(f"FFmpeg failed: {err_msg}")
+def extract_audio_av(video_path, audio_path="audio.wav"):
+    container = av.open(video_path)
+    audio_frames = []
+
+    for frame in container.decode(audio=0):
+        audio_frames.append(frame.to_ndarray())
+
+    if not audio_frames:
+        raise RuntimeError("لم يتم العثور على أي صوت في الفيديو.")
+
+    audio_data = np.concatenate(audio_frames)
+    sf.write(audio_path, audio_data, 16000)  # حفظ الصوت بصيغة WAV
 
 def transcribe_audio(audio_path):
-    model = whisper.load_model("base")  # لازم تكون مثبت النسخة الأصلية من مكتبة whisper
+    model = whisper.load_model("base")
     result = model.transcribe(audio_path)
     return result['text']
 
 def detect_accent(text):
     text = text.lower()
-    if any(word in text for word in ['mate', 'bloody', 'cheers']):
+    british_words = ['mate', 'bloody', 'cheers', 'rubbish', 'loo']
+    american_words = ['gonna', 'wanna', 'dude', 'awesome', 'bathroom']
+    australian_words = ['no worries', 'heaps', 'arvo', 'bush', 'thongs']
+
+    if any(word in text for word in british_words):
         return "British", 85
-    elif any(word in text for word in ['gonna', 'wanna', 'dude']):
+    elif any(word in text for word in american_words):
         return "American", 90
-    elif any(word in text for word in ['no worries', 'mate', 'heaps']):
+    elif any(word in text for word in australian_words):
         return "Australian", 75
     else:
         return "Uncertain", 50
 
-st.title("English Accent Detector")
+st.title("English Accent Detector (No FFmpeg!)")
 
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
@@ -61,14 +62,15 @@ if st.button("Analyze") and video_url:
     except:
         st.stop()
 
-    st.info("Extracting audio...")
+    st.info("Extracting audio using PyAV...")
     try:
-        extract_audio_ffmpeg(video_filename)
-    except:
+        extract_audio_av(video_filename)
+    except Exception as e:
+        st.error(f"خطأ في استخراج الصوت: {e}")
         st.stop()
     st.success("Audio extraction done!")
 
-    st.info("Starting transcription...")
+    st.info("Transcribing audio...")
     try:
         transcription = transcribe_audio("audio.wav")
     except Exception as e:
