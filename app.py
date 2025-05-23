@@ -35,22 +35,22 @@ def detect_accent(text):
             return accent, 85
     return "Uncertain", 50
 
-st.title("🎙️ English Accent Detector")
+st.title("🎙️ English Accent Detector(انتاج الحرااااق)")
 
 url = st.text_input("Paste a direct link to an .mp4 video")
 
 if st.button("Analyze") and url:
     file_name = f"{uuid.uuid4()}.mp4"
     try:
-        st.info("⬇️ Downloading video...")
+        st.info("⬇️ هبص عليه...")
         download_video(url, file_name)
         st.success("Download complete!")
 
-        st.info("🔊 Extracting audio...")
+        st.info("🔊 اتك عالصبر...")
         extract_audio_with_torchaudio(file_name)
         st.success("Audio extracted!")
 
-        st.info("🧠 Transcribing...")
+        st.info("🧠 اتقل تتكيف...")
         text = transcribe_audio("audio.wav")
         st.success("Transcription complete!")
 
@@ -60,7 +60,7 @@ if st.button("Analyze") and url:
         st.text_area("Transcription", text)
 
     except Exception as e:
-        st.error(f"🔥 Error: {e}")
+        st.error(f"خربان يسطا {e}")
     finally:
         if os.path.exists(file_name): os.remove(file_name)
         if os.path.exists("audio.wav"): os.remove("audio.wav")
