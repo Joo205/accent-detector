@@ -1,7 +1,6 @@
 streamlit
-openai-whisper
-av
-numpy
-requests
 torch
-soundfile
+faster-whisper
+requests
+numpy
+scipy
