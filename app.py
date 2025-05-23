@@ -1,33 +1,52 @@
 import streamlit as st
-import av
+import requests
 import whisper
 import os
 import uuid
+import av
+
+def download_video(url, filename="input_video.mp4"):
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        with open(filename, 'wb') as f:
+            f.write(response.content)
+    except Exception as e:
+        st.error(f"فشل تحميل الفيديو: {e}")
+        raise
 
 def extract_audio_from_video(video_path, audio_path="audio.wav"):
     try:
         container = av.open(video_path)
-        stream = next(s for s in container.streams if s.type == 'audio')
-        with open(audio_path, "wb") as f:
-            for frame in container.decode(stream):
-                f.write(frame.to_ndarray().tobytes())
-        return audio_path
+        audio_stream = next(s for s in container.streams if s.type == 'audio')
+
+        resampler = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=16000)
+
+        with open(audio_path, 'wb') as f:
+            for frame in container.decode(audio_stream):
+                frame = resampler.resample(frame)
+                f.write(frame.planes[0].to_bytes())
     except Exception as e:
-        st.error(f"خطأ في استخراج الصوت من الفيديو: {e}")
-        return None
+        st.error(f"حدث خطأ أثناء استخراج الصوت: {e}")
+        raise
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
     result = model.transcribe(audio_path)
-    return result["text"]
+    return result['text']
 
 def detect_accent(text):
     text = text.lower()
-    if any(word in text for word in ["mate", "bloody", "cheers"]):
+    # زيادة الكلمات عشان التعرف يكون أدق
+    british_words = ['mate', 'bloody', 'cheers', 'lorry', 'queue', 'biscuit']
+    american_words = ['gonna', 'wanna', 'dude', 'cookie', 'truck', 'sidewalk']
+    australian_words = ['no worries', 'mate', 'heaps', 'barbie', 'arvo', 'servo']
+
+    if any(word in text for word in british_words):
         return "British", 85
-    elif any(word in text for word in ["gonna", "wanna", "dude"]):
+    elif any(word in text for word in american_words):
         return "American", 90
-    elif any(word in text for word in ["no worries", "mate", "heaps"]):
+    elif any(word in text for word in australian_words):
         return "Australian", 75
     else:
         return "Uncertain", 50
@@ -37,43 +56,38 @@ st.title("English Accent Detector")
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
 if st.button("Analyze") and video_url:
-    video_filename = f"{uuid.uuid4()}.mp4"
-    audio_filename = "audio.wav"
-
     st.info("Downloading video...")
+    video_filename = f"{uuid.uuid4()}.mp4"
     try:
-        import requests
-        r = requests.get(video_url, timeout=15)
-        r.raise_for_status()
-        with open(video_filename, "wb") as f:
-            f.write(r.content)
-    except Exception as e:
-        st.error(f"فشل تحميل الفيديو: {e}")
+        download_video(video_url, video_filename)
+    except:
         st.stop()
 
     st.info("Extracting audio...")
-    audio_file = extract_audio_from_video(video_filename, audio_filename)
-    if audio_file is None:
+    try:
+        extract_audio_from_video(video_filename)
+    except:
         st.stop()
     st.success("Audio extraction done!")
 
     st.info("Starting transcription...")
     try:
-        transcription = transcribe_audio(audio_filename)
+        transcription = transcribe_audio("audio.wav")
     except Exception as e:
         st.error(f"خطأ في التفريغ الصوتي: {e}")
         st.stop()
     st.success("Transcription done!")
 
     accent, confidence = detect_accent(transcription)
+
     st.success(f"Accent: {accent}")
     st.write(f"Confidence: {confidence}%")
     st.write("Transcription:")
     st.text(transcription)
 
-    # Clean up temp files
+    # تنظيف الملفات المؤقتة
     try:
         os.remove(video_filename)
-        os.remove(audio_filename)
+        os.remove("audio.wav")
     except:
         pass
