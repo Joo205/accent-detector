@@ -2,10 +2,11 @@ import streamlit as st
 import whisper
 import av
 import numpy as np
-import soundfile as sf
+from pydub import AudioSegment
 import os
 import uuid
 import requests
+import io
 
 def download_video(url, filename="input_video.mp4"):
     try:
@@ -21,14 +22,25 @@ def extract_audio_av(video_path, audio_path="audio.wav"):
     container = av.open(video_path)
     audio_frames = []
 
-    for frame in container.decode(audio=0):
-        audio_frames.append(frame.to_ndarray())
+    for stream in container.streams:
+        if stream.type == 'audio':
+            for frame in container.decode(stream):
+                audio_frames.append(frame.to_ndarray())
+            break
 
     if not audio_frames:
         raise RuntimeError("لم يتم العثور على أي صوت في الفيديو.")
 
-    audio_data = np.concatenate(audio_frames)
-    sf.write(audio_path, audio_data, 16000)  # حفظ الصوت بصيغة WAV
+    audio_data = np.concatenate(audio_frames).astype(np.int16).tobytes()
+    
+    # حفظ الصوت باستخدام pydub كملف wav بصيغة mono 16kHz
+    audio_segment = AudioSegment(
+        data=audio_data,
+        sample_width=2,  # 16-bit audio = 2 bytes
+        frame_rate=16000,
+        channels=1
+    )
+    audio_segment.export(audio_path, format="wav")
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
@@ -50,7 +62,7 @@ def detect_accent(text):
     else:
         return "Uncertain", 50
 
-st.title("English Accent Detector (No FFmpeg!)")
+st.title("English Accent Detector (No FFmpeg)")
 
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
@@ -62,7 +74,7 @@ if st.button("Analyze") and video_url:
     except:
         st.stop()
 
-    st.info("Extracting audio using PyAV...")
+    st.info("Extracting audio using PyAV + pydub...")
     try:
         extract_audio_av(video_filename)
     except Exception as e:
@@ -85,7 +97,7 @@ if st.button("Analyze") and video_url:
     st.write("Transcription:")
     st.text(transcription)
 
-    # تنظيف الملفات المؤقتة
+    # تنظيف الملفات
     try:
         os.remove(video_filename)
         os.remove("audio.wav")
