@@ -1,5 +1,7 @@
 streamlit
-moviepy
+whisper @ git+https://github.com/openai/whisper.git
+av
+numpy
 requests
-openai-whisper
 torch
+soundfile
