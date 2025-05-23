@@ -1,6 +1,6 @@
 streamlit
 torch
-whisper
+torchaudio
+faster-whisper
 requests
 numpy
-scipy
