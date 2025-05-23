@@ -1,8 +1,7 @@
 streamlit
-openai-whisper
-av
-soundfile
 requests
-numpy
+openai-whisper @ git+https://github.com/openai/whisper.git
 pydub
-torch
+uuid
+torch==2.0.1
+torchaudio
