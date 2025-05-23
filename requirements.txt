@@ -1,5 +1,5 @@
 streamlit
-whisper @ git+https://github.com/openai/whisper.git
+openai-whisper
 av
 numpy
 requests
