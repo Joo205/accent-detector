@@ -1,26 +1,24 @@
 import streamlit as st
-import tempfile
-import os
 import requests
-import vosk
+import uuid
+import os
 import wave
-import json
+import av
 from faster_whisper import WhisperModel
 
-def download_video_from_url(url):
-    if not url.endswith(".mp4"):
-        raise ValueError("Only .mp4 links are supported.")
-    
-    response = requests.get(url)
-    if response.status_code != 200:
-        raise ValueError("Failed to download the video from the provided URL.")
+def download_video(url, filename="input.mp4"):
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(filename, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return filename
+    except Exception as e:
+        st.error(f"خطأ في تحميل الفيديو: {e}")
+        return None
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-        temp_video.write(response.content)
-        return temp_video.name
-
-def extract_audio_with_av(input_path, output_path):
-    import av
+def extract_audio_with_av(input_path, output_path="output.wav"):
     container = av.open(input_path)
     audio_stream = container.streams.audio[0]
     output = wave.open(output_path, 'wb')
@@ -36,57 +34,28 @@ def extract_audio_with_av(input_path, output_path):
 
     for frame in container.decode(audio=0):
         frame = resampler.resample(frame)
-        output.writeframes(frame.planes[0].to_bytes())
+        audio_bytes = frame.to_ndarray().tobytes()
+        output.writeframes(audio_bytes)
 
     output.close()
 
-def transcribe_audio_with_faster_whisper(audio_path):
-    model = WhisperModel("base.en", compute_type="int8")
+def transcribe_audio(audio_path):
+    model = WhisperModel("base", compute_type="cpu")
     segments, _ = model.transcribe(audio_path)
-    full_text = " ".join([segment.text for segment in segments])
-    return full_text
+    return " ".join([segment.text for segment in segments])
 
 def detect_accent(text):
     text = text.lower()
-    if any(w in text for w in ['cheers', 'bloody', 'innit']):
-        return "British", 80
-    elif any(w in text for w in ['gonna', 'wanna', 'dude']):
+    if any(word in text for word in ['mate', 'bloody', 'cheers', 'innit', 'loo']):
+        return "British", 90
+    elif any(word in text for word in ['gonna', 'wanna', 'dude', 'awesome', 'bro']):
         return "American", 85
-    elif any(w in text for w in ['mate', 'no worries', 'heaps']):
-        return "Australian", 75
+    elif any(word in text for word in ['no worries', 'heaps', 'arvo', 'crikey']):
+        return "Australian", 80
     else:
         return "Uncertain", 50
 
 # Streamlit UI
-st.title("🌍 English Accent Detector from Video URL")
+st.title("🎙️ English Accent Detector")
 
-video_url = st.text_input("Paste a direct link to an .mp4 video")
-
-if video_url:
-    try:
-        st.info("⬇️ Downloading video...")
-        video_path = download_video_from_url(video_url)
-        st.success("✅ Video downloaded")
-
-        audio_path = video_path.replace(".mp4", ".wav")
-
-        st.info("🔧 Extracting audio...")
-        extract_audio_with_av(video_path, audio_path)
-        st.success("✅ Audio extracted")
-
-        st.info("🧠 Transcribing...")
-        text = transcribe_audio_with_faster_whisper(audio_path)
-        st.success("✅ Transcription complete")
-
-        st.info("🕵️ Detecting accent...")
-        accent, confidence = detect_accent(text)
-        st.success(f"🎯 Accent: {accent}")
-        st.write(f"Confidence: {confidence}%")
-        st.write("Transcription:")
-        st.text(text)
-
-        os.remove(video_path)
-        os.remove(audio_path)
-
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+video_url = st.text_input("Enter direct .mp4 video URL:")
