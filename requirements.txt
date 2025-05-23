@@ -1,6 +1,6 @@
 streamlit
-requests
 openai-whisper
-imageio-ffmpeg
-pydub
 av
+soundfile
+requests
+numpy
