@@ -3,7 +3,7 @@ import requests
 import whisper
 import os
 import uuid
-import av
+from moviepy.editor import VideoFileClip
 
 def download_video(url, filename="input_video.mp4"):
     try:
@@ -16,19 +16,9 @@ def download_video(url, filename="input_video.mp4"):
         raise
 
 def extract_audio_from_video(video_path, audio_path="audio.wav"):
-    try:
-        container = av.open(video_path)
-        audio_stream = next(s for s in container.streams if s.type == 'audio')
-
-        resampler = av.audio.resampler.AudioResampler(format='s16', layout='mono', rate=16000)
-
-        with open(audio_path, 'wb') as f:
-            for frame in container.decode(audio_stream):
-                frame = resampler.resample(frame)
-                f.write(frame.planes[0].to_bytes())
-    except Exception as e:
-        st.error(f"حدث خطأ أثناء استخراج الصوت: {e}")
-        raise
+    video = VideoFileClip(video_path)
+    audio = video.audio
+    audio.write_audiofile(audio_path, fps=16000, nbytes=2, codec='pcm_s16le')
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
@@ -37,7 +27,6 @@ def transcribe_audio(audio_path):
 
 def detect_accent(text):
     text = text.lower()
-    # زيادة الكلمات عشان التعرف يكون أدق
     british_words = ['mate', 'bloody', 'cheers', 'lorry', 'queue', 'biscuit']
     american_words = ['gonna', 'wanna', 'dude', 'cookie', 'truck', 'sidewalk']
     australian_words = ['no worries', 'mate', 'heaps', 'barbie', 'arvo', 'servo']
@@ -66,7 +55,8 @@ if st.button("Analyze") and video_url:
     st.info("Extracting audio...")
     try:
         extract_audio_from_video(video_filename)
-    except:
+    except Exception as e:
+        st.error(f"Error extracting audio: {e}")
         st.stop()
     st.success("Audio extraction done!")
 
@@ -85,7 +75,6 @@ if st.button("Analyze") and video_url:
     st.write("Transcription:")
     st.text(transcription)
 
-    # تنظيف الملفات المؤقتة
     try:
         os.remove(video_filename)
         os.remove("audio.wav")
