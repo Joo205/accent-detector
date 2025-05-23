@@ -1,12 +1,9 @@
 import streamlit as st
+import requests
 import whisper
-import av
-import numpy as np
-from pydub import AudioSegment
 import os
 import uuid
-import requests
-import io
+import subprocess
 
 def download_video(url, filename="input_video.mp4"):
     try:
@@ -18,29 +15,23 @@ def download_video(url, filename="input_video.mp4"):
         st.error(f"فشل تحميل الفيديو: {e}")
         raise
 
-def extract_audio_av(video_path, audio_path="audio.wav"):
-    container = av.open(video_path)
-    audio_frames = []
-
-    for stream in container.streams:
-        if stream.type == 'audio':
-            for frame in container.decode(stream):
-                audio_frames.append(frame.to_ndarray())
-            break
-
-    if not audio_frames:
-        raise RuntimeError("لم يتم العثور على أي صوت في الفيديو.")
-
-    audio_data = np.concatenate(audio_frames).astype(np.int16).tobytes()
-    
-    # حفظ الصوت باستخدام pydub كملف wav بصيغة mono 16kHz
-    audio_segment = AudioSegment(
-        data=audio_data,
-        sample_width=2,  # 16-bit audio = 2 bytes
-        frame_rate=16000,
-        channels=1
-    )
-    audio_segment.export(audio_path, format="wav")
+def extract_audio_ffmpeg(video_path, audio_path="audio.wav"):
+    command = [
+        "ffmpeg",
+        "-y",  # Overwrite output file if exists
+        "-i", video_path,
+        "-vn",  # no video
+        "-acodec", "pcm_s16le",  # WAV codec
+        "-ar", "16000",  # sample rate 16kHz
+        "-ac", "1",  # mono channel
+        audio_path
+    ]
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.decode()
+        st.error(f"حدث خطأ أثناء استخراج الصوت:\n{err_msg}")
+        raise RuntimeError(f"FFmpeg failed: {err_msg}")
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
@@ -49,20 +40,16 @@ def transcribe_audio(audio_path):
 
 def detect_accent(text):
     text = text.lower()
-    british_words = ['mate', 'bloody', 'cheers', 'rubbish', 'loo']
-    american_words = ['gonna', 'wanna', 'dude', 'awesome', 'bathroom']
-    australian_words = ['no worries', 'heaps', 'arvo', 'bush', 'thongs']
-
-    if any(word in text for word in british_words):
+    if any(word in text for word in ['mate', 'bloody', 'cheers']):
         return "British", 85
-    elif any(word in text for word in american_words):
+    elif any(word in text for word in ['gonna', 'wanna', 'dude']):
         return "American", 90
-    elif any(word in text for word in australian_words):
+    elif any(word in text for word in ['no worries', 'mate', 'heaps']):
         return "Australian", 75
     else:
         return "Uncertain", 50
 
-st.title("English Accent Detector (المشطشط)")
+st.title("English Accent Detector")
 
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
@@ -74,15 +61,14 @@ if st.button("Analyze") and video_url:
     except:
         st.stop()
 
-    st.info("Extracting audio using PyAV + pydub...")
+    st.info("Extracting audio...")
     try:
-        extract_audio_av(video_filename)
-    except Exception as e:
-        st.error(f"خطأ في استخراج الصوت: {e}")
+        extract_audio_ffmpeg(video_filename)
+    except:
         st.stop()
     st.success("Audio extraction done!")
 
-    st.info("Transcribing audio...")
+    st.info("Starting transcription...")
     try:
         transcription = transcribe_audio("audio.wav")
     except Exception as e:
@@ -97,7 +83,7 @@ if st.button("Analyze") and video_url:
     st.write("Transcription:")
     st.text(transcription)
 
-    # تنظيف الملفات
+    # تنظيف الملفات المؤقتة
     try:
         os.remove(video_filename)
         os.remove("audio.wav")
