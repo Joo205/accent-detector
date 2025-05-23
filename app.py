@@ -1,95 +1,100 @@
 import streamlit as st
+import whisper
 import requests
-import uuid
-import os
-import wave
 import av
-from faster_whisper import WhisperModel
+import numpy as np
+import tempfile
 
-def download_video(url, filename="input.mp4"):
+def download_video(url):
     try:
-        response = requests.get(url, stream=True)
+        response = requests.get(url, timeout=15)
         response.raise_for_status()
-        with open(filename, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        return filename
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        temp_file.write(response.content)
+        temp_file.close()
+        return temp_file.name
     except Exception as e:
-        st.error(f"خطأ في تحميل الفيديو: {e}")
+        st.error(f"فشل تحميل الفيديو: {e}")
         return None
 
-def extract_audio_with_av(input_path, output_path="output.wav"):
-    container = av.open(input_path)
-    audio_stream = container.streams.audio[0]
-    output = wave.open(output_path, 'wb')
-    output.setnchannels(1)
-    output.setsampwidth(2)
-    output.setframerate(16000)
-
-    resampler = av.audio.resampler.AudioResampler(
-        format="s16",
-        layout="mono",
-        rate=16000
-    )
-
-    for frame in container.decode(audio=0):
-        frame = resampler.resample(frame)
-        audio_bytes = frame.to_ndarray().tobytes()
-        output.writeframes(audio_bytes)
-
-    output.close()
-
-def transcribe_audio(audio_path):
-    model = WhisperModel("base", compute_type="cpu")
-    segments, _ = model.transcribe(audio_path)
-    return " ".join([segment.text for segment in segments])
-
-def detect_accent(text):
-    text = text.lower()
-    if any(word in text for word in ['mate', 'bloody', 'cheers', 'innit', 'loo']):
-        return "British", 90
-    elif any(word in text for word in ['gonna', 'wanna', 'dude', 'awesome', 'bro']):
-        return "American", 85
-    elif any(word in text for word in ['no worries', 'heaps', 'arvo', 'crikey']):
-        return "Australian", 80
+def extract_audio_from_video(video_path):
+    container = av.open(video_path)
+    audio_stream = next((s for s in container.streams if s.type == 'audio'), None)
+    if audio_stream is None:
+        raise RuntimeError("لم يتم العثور على مسار صوتي في الفيديو")
+    
+    audio_frames = []
+    for frame in container.decode(audio_stream):
+        # تحويل الإطار الصوتي لمصفوفة numpy
+        frame_array = frame.to_ndarray()
+        audio_frames.append(frame_array)
+    
+    if not audio_frames:
+        raise RuntimeError("لا توجد إطارات صوتية")
+    
+    # دمج كل إطارات الصوت في مصفوفة واحدة
+    audio = np.concatenate(audio_frames, axis=1)  # axis=1 لأن الصوت في شكل (channels, samples)
+    
+    # لو الصوت ستيريو، نحول لمونو بأخذ متوسط القناتين
+    if audio.shape[0] > 1:
+        audio_mono = np.mean(audio, axis=0)
     else:
-        return "Uncertain", 50
+        audio_mono = audio[0]
+    
+    # whisper يتوقع float32 مع مدى -1.0 إلى 1.0
+    audio_float32 = audio_mono.astype(np.float32) / 32768.0  # تحويل من int16 لو الصوت بصيغة 16bit
+    
+    return audio_float32
 
-# Streamlit UI
-st.title("🎙️ English Accent Detector")
+def transcribe_audio_array(audio_np, model):
+    # whisper يقدر ياخد مصفوفة صوتية جاهزة، لكن لازم تتأكد إنها 16kHz
+    # هنا نفترض ان الصوت من الفيديو أصلاً 16kHz أو نقوم بتحويله لو لازم
+    result = model.transcribe(audio_np, fp16=False)
+    return result['text']
 
-video_url = st.text_input("Enter direct .mp4 video URL:")
+st.title("English Accent Detector بدون FFmpeg")
 
-if st.button("Analyze") and video_url:
-    st.info("📥 Downloading video...")
-    video_file = f"{uuid.uuid4()}.mp4"
-    if download_video(video_url, video_file):
-        st.success("✅ Video downloaded successfully.")
+video_url = st.text_input("أدخل رابط مباشر لفيديو MP4:")
 
-        st.info("🎧 Extracting audio...")
-        audio_file = f"{uuid.uuid4()}.wav"
-        try:
-            extract_audio_with_av(video_file, audio_file)
-            st.success("✅ Audio extracted successfully.")
-        except Exception as e:
-            st.error(f"خطأ في استخراج الصوت: {e}")
-            st.stop()
+if st.button("تحليل") and video_url:
+    st.info("جار تحميل الفيديو...")
+    video_file = download_video(video_url)
+    if not video_file:
+        st.stop()
+    
+    st.info("جار استخراج الصوت من الفيديو...")
+    try:
+        audio_np = extract_audio_from_video(video_file)
+    except Exception as e:
+        st.error(f"خطأ في استخراج الصوت: {e}")
+        st.stop()
+    st.success("تم استخراج الصوت!")
 
-        st.info("🧠 Transcribing audio...")
-        try:
-            transcription = transcribe_audio(audio_file)
-            st.success("✅ Transcription completed.")
-        except Exception as e:
-            st.error(f"خطأ في التفريغ الصوتي: {e}")
-            st.stop()
+    st.info("جار التفريغ الصوتي...")
+    try:
+        model = whisper.load_model("base")
+        transcription = model.transcribe(audio_np, fp16=False)
+        text = transcription['text']
+    except Exception as e:
+        st.error(f"خطأ في التفريغ الصوتي: {e}")
+        st.stop()
+    st.success("تم التفريغ الصوتي!")
 
-        accent, confidence = detect_accent(transcription)
+    # مثال بسيط لتحديد اللكنة (تقدر توسع القاعدة)
+    def detect_accent(text):
+        text = text.lower()
+        if any(word in text for word in ['mate', 'bloody', 'cheers']):
+            return "British", 85
+        elif any(word in text for word in ['gonna', 'wanna', 'dude']):
+            return "American", 90
+        elif any(word in text for word in ['no worries', 'mate', 'heaps']):
+            return "Australian", 75
+        else:
+            return "Uncertain", 50
 
-        st.markdown(f"### 🎯 Accent: `{accent}`")
-        st.markdown(f"**Confidence**: {confidence}%")
-        st.markdown("**Transcription:**")
-        st.text(transcription)
+    accent, confidence = detect_accent(text)
 
-        # Clean up
-        os.remove(video_file)
-        os.remove(audio_file)
+    st.success(f"اللكنة: {accent}")
+    st.write(f"الثقة: {confidence}%")
+    st.write("النص المستخرج:")
+    st.text(text)
