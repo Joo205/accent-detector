@@ -2,3 +2,4 @@ streamlit
 imageio-ffmpeg
 openai-whisper
 pydub
+av
