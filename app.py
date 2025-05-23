@@ -3,9 +3,8 @@ import requests
 import whisper
 import os
 import uuid
-from moviepy.editor import VideoFileClip
 
-def download_video(url, filename="input_video.mp4"):
+def download_video(url, filename):
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
@@ -15,14 +14,10 @@ def download_video(url, filename="input_video.mp4"):
         st.error(f"فشل تحميل الفيديو: {e}")
         raise
 
-def extract_audio_from_video(video_path, audio_path="audio.wav"):
-    video = VideoFileClip(video_path)
-    audio = video.audio
-    audio.write_audiofile(audio_path, fps=16000, nbytes=2, codec='pcm_s16le')
-
-def transcribe_audio(audio_path):
+def transcribe_video(video_path):
     model = whisper.load_model("base")
-    result = model.transcribe(audio_path)
+    # في النسخ الجديدة للwhisper ممكن تمرر ملف فيديو mp4 مباشرة
+    result = model.transcribe(video_path)
     return result['text']
 
 def detect_accent(text):
@@ -45,24 +40,16 @@ st.title("English Accent Detector")
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
 if st.button("Analyze") and video_url:
-    st.info("Downloading video...")
     video_filename = f"{uuid.uuid4()}.mp4"
+    st.info("Downloading video...")
     try:
         download_video(video_url, video_filename)
     except:
         st.stop()
 
-    st.info("Extracting audio...")
-    try:
-        extract_audio_from_video(video_filename)
-    except Exception as e:
-        st.error(f"Error extracting audio: {e}")
-        st.stop()
-    st.success("Audio extraction done!")
-
     st.info("Starting transcription...")
     try:
-        transcription = transcribe_audio("audio.wav")
+        transcription = transcribe_video(video_filename)
     except Exception as e:
         st.error(f"خطأ في التفريغ الصوتي: {e}")
         st.stop()
@@ -77,6 +64,5 @@ if st.button("Analyze") and video_url:
 
     try:
         os.remove(video_filename)
-        os.remove("audio.wav")
     except:
         pass
