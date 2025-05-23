@@ -1,5 +1,6 @@
 streamlit
 requests
 moviepy
+imageio-ffmpeg
 openai-whisper
-torch
+torch==1.13.1+cpu
