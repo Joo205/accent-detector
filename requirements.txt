@@ -1,3 +1,4 @@
 streamlit
-openai-whisper
 requests
+openai-whisper
+torch
