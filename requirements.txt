@@ -1,4 +1,4 @@
 streamlit
 openai-whisper
-av
 requests
+moviepy
