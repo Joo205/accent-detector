@@ -34,17 +34,22 @@ def extract_audio_ffmpeg(video_path, audio_path="audio.wav"):
         raise RuntimeError(f"FFmpeg failed: {err_msg}")
 
 def transcribe_audio(audio_path):
-    model = whisper.load_model("base")
+    # هنا غيرنا موديل whisper لـ small عشان السرعة أحسن
+    model = whisper.load_model("small")
     result = model.transcribe(audio_path)
     return result['text']
 
 def detect_accent(text):
     text = text.lower()
-    if any(word in text for word in ['mate', 'bloody', 'cheers']):
+    british_words = ['mate', 'bloody', 'cheers', 'brilliant', 'fancy', 'lorry', 'queue', 'loo', 'biscuit', 'holiday', 'pub']
+    american_words = ['gonna', 'wanna', 'dude', 'awesome', 'truck', 'elevator', 'cookie', 'vacation', 'sidewalk', 'fries']
+    australian_words = ['no worries', 'mate', 'heaps', 'barbie', 'arvo', 'reckon', 'servo', 'thongs', 'brekkie']
+
+    if any(word in text for word in british_words):
         return "British", 85
-    elif any(word in text for word in ['gonna', 'wanna', 'dude']):
+    elif any(word in text for word in american_words):
         return "American", 90
-    elif any(word in text for word in ['no worries', 'mate', 'heaps']):
+    elif any(word in text for word in australian_words):
         return "Australian", 75
     else:
         return "Uncertain", 50
