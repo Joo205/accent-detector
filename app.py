@@ -1,10 +1,9 @@
-
 import streamlit as st
 import requests
-import moviepy.editor as mp
 import whisper
 import os
 import uuid
+import subprocess
 
 def download_video(url, filename="input_video.mp4"):
     response = requests.get(url)
@@ -12,8 +11,16 @@ def download_video(url, filename="input_video.mp4"):
         f.write(response.content)
 
 def extract_audio(video_path, audio_path="audio.wav"):
-    clip = mp.VideoFileClip(video_path)
-    clip.audio.write_audiofile(audio_path)
+    command = [
+        "ffmpeg",
+        "-i", video_path,
+        "-vn",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        audio_path
+    ]
+    subprocess.run(command, check=True)
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
