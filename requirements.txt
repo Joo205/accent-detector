@@ -1,4 +1,6 @@
 streamlit
 requests
-openai-whisper
-torch
+whisper
+pydub
+imageio-ffmpeg
+av
