@@ -1,80 +1,88 @@
 import streamlit as st
-import requests
-import uuid
+import tempfile
 import os
-from vosk import Model, KaldiRecognizer
+import vosk
 import wave
-import subprocess
+import json
+from faster_whisper import WhisperModel
 
-def download_video(url, filename="video.mp4"):
-    response = requests.get(url)
-    with open(filename, 'wb') as f:
-        f.write(response.content)
+def is_valid_video_file(file):
+    return file.name.endswith(".mp4")
 
-def convert_mp4_to_wav(mp4_path, wav_path):
-    # محاولة استخدام ffmpeg فقط إذا كان مثبتاً في بيئة Streamlit
-    try:
-        subprocess.run([
-            "ffmpeg", "-y", "-i", mp4_path, "-ac", "1", "-ar", "16000", wav_path
-        ], check=True)
-    except Exception as e:
-        st.error(f"فشل تحويل الفيديو إلى WAV: {e}")
-        raise
+def extract_audio_with_av(input_path, output_path):
+    import av
+    container = av.open(input_path)
+    audio_stream = container.streams.audio[0]
+    output = wave.open(output_path, 'wb')
+    output.setnchannels(1)
+    output.setsampwidth(2)
+    output.setframerate(16000)
 
-def transcribe_with_vosk(wav_path):
-    model = Model(lang="en-us")
-    wf = wave.open(wav_path, "rb")
-    rec = KaldiRecognizer(model, wf.getframerate())
-    
-    results = ""
-    while True:
-        data = wf.readframes(4000)
-        if len(data) == 0:
-            break
-        if rec.AcceptWaveform(data):
-            results += rec.Result()
-    results += rec.FinalResult()
-    return results
+    resampler = av.audio.resampler.AudioResampler(
+        format="s16",
+        layout="mono",
+        rate=16000
+    )
+
+    for frame in container.decode(audio=0):
+        frame = resampler.resample(frame)
+        output.writeframes(frame.planes[0].to_bytes())
+
+    output.close()
+
+def transcribe_audio_with_faster_whisper(audio_path):
+    model = WhisperModel("base.en", compute_type="int8")
+    segments, _ = model.transcribe(audio_path)
+    full_text = " ".join([segment.text for segment in segments])
+    return full_text
 
 def detect_accent(text):
     text = text.lower()
-    if any(word in text for word in ['mate', 'bloody', 'cheers']):
-        return "British", 85
-    elif any(word in text for word in ['gonna', 'wanna', 'dude']):
-        return "American", 90
-    elif any(word in text for word in ['no worries', 'mate', 'heaps']):
+    if any(w in text for w in ['cheers', 'bloody', 'innit']):
+        return "British", 80
+    elif any(w in text for w in ['gonna', 'wanna', 'dude']):
+        return "American", 85
+    elif any(w in text for w in ['mate', 'no worries', 'heaps']):
         return "Australian", 75
     else:
         return "Uncertain", 50
 
-# واجهة Streamlit
-st.title("English Accent Detector (FFmpeg-free)")
-video_url = st.text_input("Enter a direct MP4 video URL:")
+# Streamlit UI
+st.title("🎙️ English Accent Detector")
 
-if st.button("Analyze") and video_url:
-    video_path = f"{uuid.uuid4()}.mp4"
-    wav_path = "audio.wav"
+uploaded_file = st.file_uploader("Upload an MP4 video file", type=["mp4"])
+
+if uploaded_file and is_valid_video_file(uploaded_file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
+        temp_video.write(uploaded_file.read())
+        video_path = temp_video.name
+
+    audio_path = video_path.replace(".mp4", ".wav")
     
+    st.info("🔧 Extracting audio...")
     try:
-        st.info("Downloading video...")
-        download_video(video_url, video_path)
-
-        st.info("Extracting audio...")
-        convert_mp4_to_wav(video_path, wav_path)
-
-        st.info("Transcribing...")
-        transcript = transcribe_with_vosk(wav_path)
-
-        st.success("Done!")
-        accent, confidence = detect_accent(transcript)
-        st.write(f"Accent Detected: **{accent}**")
-        st.write(f"Confidence: **{confidence}%**")
-        st.text(transcript)
-
+        extract_audio_with_av(video_path, audio_path)
+        st.success("✅ Audio extracted")
     except Exception as e:
-        st.error(f"Error: {e}")
-    finally:
-        if os.path.exists(video_path):
-            os.remove(video_path)
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+        st.error(f"❌ Failed to extract audio: {e}")
+        st.stop()
+
+    st.info("🧠 Transcribing...")
+    try:
+        text = transcribe_audio_with_faster_whisper(audio_path)
+        st.success("✅ Transcription complete")
+    except Exception as e:
+        st.error(f"❌ Failed to transcribe audio: {e}")
+        st.stop()
+
+    st.info("🕵️ Detecting accent...")
+    accent, confidence = detect_accent(text)
+    st.success(f"🎯 Accent: {accent}")
+    st.write(f"Confidence: {confidence}%")
+    st.write("Transcription:")
+    st.text(text)
+
+    os.remove(video_path)
+    os.remove(audio_path)
+else:
+    st.warning("⚠️ Please upload a valid .mp4 file.")
