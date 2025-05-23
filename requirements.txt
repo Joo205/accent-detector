@@ -1,5 +1,5 @@
 streamlit
 requests
-faster-whisper==0.10.0
-torch==2.1.0
+faster-whisper
 av
+torch
