@@ -1,4 +1,5 @@
 streamlit
+requests
 av
 faster-whisper
 vosk
