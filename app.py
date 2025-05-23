@@ -62,7 +62,7 @@ def detect_accent(text):
     else:
         return "Uncertain", 50
 
-st.title("English Accent Detector (No FFmpeg)")
+st.title("English Accent Detector (المشطشط)")
 
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
