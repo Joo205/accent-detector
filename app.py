@@ -1,13 +1,23 @@
 import streamlit as st
 import tempfile
 import os
+import requests
 import vosk
 import wave
 import json
 from faster_whisper import WhisperModel
 
-def is_valid_video_file(file):
-    return file.name.endswith(".mp4")
+def download_video_from_url(url):
+    if not url.endswith(".mp4"):
+        raise ValueError("Only .mp4 links are supported.")
+    
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise ValueError("Failed to download the video from the provided URL.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
+        temp_video.write(response.content)
+        return temp_video.name
 
 def extract_audio_with_av(input_path, output_path):
     import av
@@ -48,41 +58,35 @@ def detect_accent(text):
         return "Uncertain", 50
 
 # Streamlit UI
-st.title("🎙️ English Accent Detector")
+st.title("🌍 English Accent Detector from Video URL")
 
-uploaded_file = st.file_uploader("Upload an MP4 video file", type=["mp4"])
+video_url = st.text_input("Paste a direct link to an .mp4 video")
 
-if uploaded_file and is_valid_video_file(uploaded_file):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
-        temp_video.write(uploaded_file.read())
-        video_path = temp_video.name
-
-    audio_path = video_path.replace(".mp4", ".wav")
-    
-    st.info("🔧 Extracting audio...")
+if video_url:
     try:
+        st.info("⬇️ Downloading video...")
+        video_path = download_video_from_url(video_url)
+        st.success("✅ Video downloaded")
+
+        audio_path = video_path.replace(".mp4", ".wav")
+
+        st.info("🔧 Extracting audio...")
         extract_audio_with_av(video_path, audio_path)
         st.success("✅ Audio extracted")
-    except Exception as e:
-        st.error(f"❌ Failed to extract audio: {e}")
-        st.stop()
 
-    st.info("🧠 Transcribing...")
-    try:
+        st.info("🧠 Transcribing...")
         text = transcribe_audio_with_faster_whisper(audio_path)
         st.success("✅ Transcription complete")
+
+        st.info("🕵️ Detecting accent...")
+        accent, confidence = detect_accent(text)
+        st.success(f"🎯 Accent: {accent}")
+        st.write(f"Confidence: {confidence}%")
+        st.write("Transcription:")
+        st.text(text)
+
+        os.remove(video_path)
+        os.remove(audio_path)
+
     except Exception as e:
-        st.error(f"❌ Failed to transcribe audio: {e}")
-        st.stop()
-
-    st.info("🕵️ Detecting accent...")
-    accent, confidence = detect_accent(text)
-    st.success(f"🎯 Accent: {accent}")
-    st.write(f"Confidence: {confidence}%")
-    st.write("Transcription:")
-    st.text(text)
-
-    os.remove(video_path)
-    os.remove(audio_path)
-else:
-    st.warning("⚠️ Please upload a valid .mp4 file.")
+        st.error(f"❌ Error: {e}")
