@@ -1,4 +1,5 @@
 streamlit
 requests
-openai-whisper
-torch==2.0.1
+vosk
+pydub
+simpleaudio
