@@ -1,5 +1,6 @@
 streamlit
-requests
-faster-whisper
+whisper @ git+https://github.com/openai/whisper.git
 av
+numpy
+requests
 torch
