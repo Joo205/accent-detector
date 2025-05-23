@@ -34,8 +34,7 @@ def extract_audio_ffmpeg(video_path, audio_path="audio.wav"):
         raise RuntimeError(f"FFmpeg failed: {err_msg}")
 
 def transcribe_audio(audio_path):
-    # هنا غيرنا موديل whisper لـ small عشان السرعة أحسن
-    model = whisper.load_model("small")
+    model = whisper.load_model("small")  # صححت هنا
     result = model.transcribe(audio_path)
     return result['text']
 
