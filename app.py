@@ -7,6 +7,7 @@ import subprocess
 
 def download_video(url, filename="input_video.mp4"):
     response = requests.get(url)
+    response.raise_for_status()  # تأكد من نجاح التحميل
     with open(filename, 'wb') as f:
         f.write(response.content)
 
@@ -20,7 +21,12 @@ def extract_audio(video_path, audio_path="audio.wav"):
         "-ac", "1",
         audio_path
     ]
-    subprocess.run(command, check=True)
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        st.write(result.stdout)
+    except subprocess.CalledProcessError as e:
+        st.error(f"FFmpeg failed:\n{e.stderr}")
+        raise
 
 def transcribe_audio(audio_path):
     model = whisper.load_model("base")
@@ -43,18 +49,42 @@ st.title("English Accent Detector")
 video_url = st.text_input("Enter a direct MP4 video URL:")
 
 if st.button("Analyze") and video_url:
-    st.info("Downloading video...")
     video_filename = f"{uuid.uuid4()}.mp4"
-    download_video(video_url, video_filename)
+    audio_filename = "audio.wav"
+
+    st.info("Downloading video...")
+    try:
+        download_video(video_url, video_filename)
+        st.success("Video downloaded successfully!")
+    except Exception as e:
+        st.error(f"Failed to download video: {e}")
+        st.stop()
 
     st.info("Extracting audio...")
-    extract_audio(video_filename)
+    try:
+        extract_audio(video_filename, audio_filename)
+        if not os.path.exists(audio_filename):
+            st.error("Audio file was not created. Check ffmpeg or the video file.")
+            st.stop()
+        st.success("Audio extraction done!")
+    except Exception:
+        st.stop()
 
-    st.info("Transcribing and analyzing...")
-    transcription = transcribe_audio("audio.wav")
+    st.info("Starting transcription...")
+    try:
+        transcription = transcribe_audio(audio_filename)
+        st.success("Transcription done!")
+    except Exception as e:
+        st.error(f"Transcription failed: {e}")
+        st.stop()
+
     accent, confidence = detect_accent(transcription)
+    st.write(f"Accent: **{accent}**")
+    st.write(f"Confidence: **{confidence}%**")
+    st.text_area("Transcription", transcription, height=200)
 
-    st.success(f"Accent: {accent}")
-    st.write(f"Confidence: {confidence}%")
-    st.write("Transcription:")
-    st.text(transcription)
+    # نظافة: حذف الملفات المؤقتة
+    if os.path.exists(video_filename):
+        os.remove(video_filename)
+    if os.path.exists(audio_filename):
+        os.remove(audio_filename)
